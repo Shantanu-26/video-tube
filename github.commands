@@ -1,0 +1,15 @@
+git init
+git add .
+git commit -m "Initial commit"
+git remote add origin https://github.com/yourusername/video-tube.git
+git push -u origin main
+
+To check if a branch exists and create it
+git branch
+git checkout -b main
+git push -u origin main
+
+To commit changes
+git add .
+git commit -m "Initial commit"
+git push -u origin main
