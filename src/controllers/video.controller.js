@@ -5,7 +5,7 @@ import {ApiError} from "../utils/ApiError.js"
 import {ApiResponse} from "../utils/ApiResponse.js"
 import {asyncHandler} from "../utils/asyncHandler.js"
 import {uploadOnCloudinary, deleteFromCloudinary} from "../utils/cloudinary.js"
-
+import extractPublicId from "cloudinary-build-urls"
 
 const getAllVideos = asyncHandler(async (req, res) => {
     const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query
@@ -134,7 +134,7 @@ const getVideoById = asyncHandler(async (req, res) => {
     //incrementing number if views on video
     video.views+=1
 
-    const view=await video.save({ validateBeforeSave: false})
+    const view=await video.save({ validateBeforeSave: false})                //Validation before save is used to validate a document before saving. Validation is skipped if it is set to false, else validation takes place
 
     if(!view){
         throw new ApiError(402, "Number of views could not be incremented")
@@ -150,15 +150,115 @@ const getVideoById = asyncHandler(async (req, res) => {
 const updateVideo = asyncHandler(async (req, res) => {
     const { videoId } = req.params
     //TODO: update video details like title, description, thumbnail
+    const { title, description }=req.body
+    const newThumbnail=req.file
+
+    if(!videoId?.trim()){
+        throw new ApiError(403, "Video Id is missing")
+    }
+
+    if(isValidObjectId(videoId)){
+        throw new ApiError(403, "Video Id is invalid")
+    }
+
+    if(!title || !description){
+        throw new ApiError(403, "All fields are required")
+    }
+
+    const video=await Video.findById(videoId)
+    if(!video){
+        throw new ApiError(403, "Video is missing")
+    }
+
+    if(newThumbnail){
+        if(video.thumbnail && video.thumbnail.publicId){
+            await deleteFromCloudinary(video.thumbnail.publicId)
+        }
+
+        const thumbnailUpload=await uploadOnCloudinary(newThumbnail.path)
+        video.thumbnail={
+            url: thumbnailUpload.secure.url,
+            publicId: thumbnailUpload.public_id
+        }
+    }
+
+    if(title){
+        video.title=title
+    }
+
+    if(description){
+        video.description=description
+    }
+
+    const updatedVideo=await video.save({ validateBeforeSave: false})
+
+    return res
+    .status(203)
+    .json(
+        new ApiResponse(203, "Video updated successfully")
+    )
 })
 
 const deleteVideo = asyncHandler(async (req, res) => {
     const { videoId } = req.params
     //TODO: delete video
+    if(!videoId?.trim()){
+        throw new ApiError(404, "Video id is missing")
+    }
+
+    if(isValidObjectId(videoId)){
+        throw new ApiError(404, "Video Id is invalid")
+    }
+
+    const video=await Video.findByIdAndDelete(videoId)
+
+    if(!video){
+        throw new ApiError(404, "Video file is missing")
+    }
+
+    //Now deleting thumbnail and video from cloudinary
+    const videoPublicId=extractPublicId(video.videoFile)
+    const deletedVideo=await deleteFromCloudinary(videoPublicId)
+    if(!deletedVideo){
+        throw new ApiError(404, "Error while deleting the thumbnail")
+    }
+
+    const thumbnailPublicId=extractPublicId(video.thumbnail)
+    const deletedThumbnail=await deleteFromCloudinary(thumbnailPublicId)
+
+    if(!thumbnailPublicId){
+        throw new ApiError(404, "Error while deleting the thumbnail")
+    }
+
+    return res
+    .status(204)
+    .json(
+        new ApiResponse(
+            204, {}, "Video deleted successfully"
+        )
+    )
 })
 
 const togglePublishStatus = asyncHandler(async (req, res) => {
     const { videoId } = req.params
+    
+    if(!videoId?.trim()){
+        throw new ApiError(405, "Video Id is missing")
+    }
+
+    if(!isValidObjectId(videoId)){
+        throw new ApiError(405, "Video Id is invalid")
+    }
+
+    const video=await Video.findById(videoId)
+    video.isPublished=!video.isPublished
+    await video.save()
+
+    return res
+    .status(205)
+    .json(
+        new ApiResponse(200, "Status toggled successfully")
+    )
 })
 
 export {
